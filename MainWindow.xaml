@@ -1,0 +1,44 @@
+﻿<Window x:Class="PhotoHelper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PhotoHelper"
+        mc:Ignorable="d"
+        Title="PhotoHelper" Height="520" Width="860">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="PhotoHelper 基础界面" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="日志输出（开发阶段）" Foreground="Gray" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox x:Name="SourcePathTextBox" Width="520" Margin="0,0,8,0" />
+                <Button x:Name="BrowseSourceButton" Content="选择源路径" Width="110" Margin="0,0,8,0" />
+                <Button x:Name="StartImportButton" Content="开始智能导入" Width="140" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox x:Name="TargetRootTextBox" Width="420" Margin="0,0,8,0" />
+                <Button x:Name="BrowseTargetButton" Content="选择目标路径" Width="110" Margin="0,0,8,0" />
+                <TextBlock Text="库:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox x:Name="LibraryComboBox" Width="160" Margin="0,0,8,0" />
+                <Button x:Name="RebuildButton" Content="重建历史数据库" Width="140" />
+            </StackPanel>
+            <ProgressBar x:Name="ImportProgressBar" Height="18" Minimum="0" Maximum="1" />
+        </StackPanel>
+
+        <TextBox x:Name="LogTextBox"
+                 Grid.Row="2"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto" />
+    </Grid>
+</Window>

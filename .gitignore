@@ -1,0 +1,51 @@
+# Build artifacts
+bin/
+obj/
+out/
+artifacts/
+Debug/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vscode/
+*.code-workspace
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+# allow packages.config
+!packages.config
+
+# ASP.NET
+*.pubxml
+*.publishsettings
+publish/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*~ 
+*.bak
+*.tmp
+
+# Rider / VS cache
+*.cache
