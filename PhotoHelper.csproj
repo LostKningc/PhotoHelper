@@ -12,10 +12,10 @@
     <Company>Kningc</Company>
     <Authors>Kningc</Authors>
     <Description>PhotoHelper 是一款用于扫描、导入与归档照片的 Windows WPF 桌面应用。</Description>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <FileVersion>0.2.0.0</FileVersion>
-    <InformationalVersion>0.2.0</InformationalVersion>
+    <Version>0.2.1</Version>
+    <AssemblyVersion>0.2.1.0</AssemblyVersion>
+    <FileVersion>0.2.1.0</FileVersion>
+    <InformationalVersion>0.2.1</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

@@ -36,6 +36,6 @@ public static class MetadataHelper
         }
 
         var info = new FileInfo(filePath);
-        return info.CreationTime <= info.LastWriteTime ? info.CreationTime : info.LastWriteTime;
+        return info.LastWriteTimeUtc.ToLocalTime();
     }
 }

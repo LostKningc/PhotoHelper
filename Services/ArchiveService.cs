@@ -1,6 +1,7 @@
 using PhotoHelper.Logging;
 using PhotoHelper.Models;
 using PhotoHelper.Utils;
+using System.Security.Cryptography;
 using System.IO;
 
 namespace PhotoHelper.Services;
@@ -8,6 +9,7 @@ namespace PhotoHelper.Services;
 public sealed class ArchiveService
 {
     private const int BufferSize = 1024 * 1024 * 4; // 4MB
+    private const int HashSegmentSize = 1024 * 64; // 64KB
     private readonly Logger _logger;
 
     public ArchiveService(Logger logger)
@@ -15,7 +17,7 @@ public sealed class ArchiveService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public PhotoHistory ArchivePhoto(PhotoHistory record, string targetRoot)
+    public ArchiveResult ArchivePhoto(PhotoHistory record, string targetRoot)
     {
         if (record is null)
         {
@@ -48,11 +50,13 @@ public sealed class ArchiveService
             _logger.Info($"[跳过] 目标已存在相同文件 {record.FileName}");
         }
 
-        return record with
+        var updated = record with
         {
             TargetPath = targetPath,
             ImportTime = DateTime.Now
         };
+
+        return new ArchiveResult(updated, !alreadyExists);
     }
 
     private static (string Path, bool AlreadyExists) BuildSafeTargetPath(
@@ -84,13 +88,54 @@ public sealed class ArchiveService
         var source = new FileInfo(sourcePath);
         var target = new FileInfo(targetPath);
 
-        return source.Length == target.Length && source.LastWriteTimeUtc == target.LastWriteTimeUtc;
+        if (source.Length != target.Length || source.LastWriteTimeUtc != target.LastWriteTimeUtc)
+        {
+            return false;
+        }
+
+        try
+        {
+            var sourceHash = ComputeQuickHash(sourcePath);
+            var targetHash = ComputeQuickHash(targetPath);
+            return sourceHash == targetHash;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string ComputeQuickHash(string path)
+    {
+        using var sha = SHA256.Create();
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        if (stream.Length <= HashSegmentSize * 2)
+        {
+            return Convert.ToHexString(sha.ComputeHash(stream));
+        }
+
+        var buffer = new byte[HashSegmentSize];
+        var read = stream.Read(buffer, 0, buffer.Length);
+        sha.TransformBlock(buffer, 0, read, null, 0);
+
+        stream.Seek(-HashSegmentSize, SeekOrigin.End);
+        read = stream.Read(buffer, 0, buffer.Length);
+        sha.TransformFinalBlock(buffer, 0, read);
+
+        return Convert.ToHexString(sha.Hash ?? Array.Empty<byte>());
     }
 
     private static void CopyFile(string sourcePath, string targetPath)
     {
-        using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var target = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        source.CopyTo(target, BufferSize);
+        var sourceInfo = new FileInfo(sourcePath);
+        using (var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var target = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            source.CopyTo(target, BufferSize);
+        }
+
+        File.SetLastWriteTimeUtc(targetPath, sourceInfo.LastWriteTimeUtc);
+        File.SetCreationTimeUtc(targetPath, sourceInfo.CreationTimeUtc);
     }
 }

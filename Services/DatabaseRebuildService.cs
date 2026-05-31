@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using PhotoHelper.Data;
 using PhotoHelper.Logging;
 using PhotoHelper.Models;
@@ -30,82 +31,121 @@ public sealed class DatabaseRebuildService
         }
 
         _logger.Info("开始重建历史数据库...");
-        _databaseService.Clear();
+        var originalPath = _databaseService.DatabasePath;
+        var dataDirectory = Path.GetDirectoryName(originalPath)
+            ?? throw new InvalidOperationException("无法解析数据库目录。");
+        var tempPath = Path.Combine(dataDirectory, "photohelper.rebuild.db");
+        var backupPath = Path.Combine(dataDirectory, "photohelper.backup.db");
 
-        var records = new List<PhotoHistory>();
-        var files = SafeEnumerateFiles(targetRoot);
-        var processed = 0;
-
-        foreach (var file in files)
+        if (File.Exists(tempPath))
         {
-            processed++;
-            try
-            {
-                if (!PhotoFileHelper.IsSupportedPhoto(file))
-                {
-                    continue;
-                }
-
-                var info = new FileInfo(file);
-                records.Add(new PhotoHistory
-                {
-                    Uuid = PhotoFileHelper.BuildUuid(info),
-                    ImportTime = DateTime.Now,
-                    FileName = info.Name,
-                    Size = info.Length,
-                    ModifiedTime = info.LastWriteTime,
-                    SourcePath = info.FullName,
-                    TargetPath = info.FullName
-                });
-
-                if (records.Count >= 500)
-                {
-                    _databaseService.InsertBatch(records);
-                    records.Clear();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"重建时跳过文件: {file}. 原因: {ex.Message}");
-            }
+            File.Delete(tempPath);
         }
 
-        if (records.Count > 0)
+        var tempDatabase = new DatabaseService(dataDirectory, Path.GetFileName(tempPath));
+        tempDatabase.Initialize();
+
+        var records = new List<PhotoHistory>();
+        var processed = 0;
+
+        try
         {
-            _databaseService.InsertBatch(records);
+            foreach (var file in SafeEnumerateFiles(targetRoot))
+            {
+                processed++;
+                try
+                {
+                    if (!PhotoFileHelper.IsSupportedPhoto(file))
+                    {
+                        continue;
+                    }
+
+                    var info = new FileInfo(file);
+                    records.Add(new PhotoHistory
+                    {
+                        Uuid = PhotoFileHelper.BuildUuid(info),
+                        ImportTime = DateTime.Now,
+                        FileName = info.Name,
+                        Size = info.Length,
+                        ModifiedTime = info.LastWriteTimeUtc,
+                        SourcePath = info.FullName,
+                        TargetPath = info.FullName
+                    });
+
+                    if (records.Count >= 500)
+                    {
+                        tempDatabase.InsertBatch(records);
+                        records.Clear();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"重建时跳过文件: {file}. 原因: {ex.Message}");
+                }
+            }
+
+            if (records.Count > 0)
+            {
+                tempDatabase.InsertBatch(records);
+            }
+
+            SqliteConnection.ClearAllPools();
+
+            if (File.Exists(originalPath))
+            {
+                File.Replace(tempPath, originalPath, backupPath, true);
+                _logger.Info($"数据库已替换，备份文件: {backupPath}");
+            }
+            else
+            {
+                File.Move(tempPath, originalPath);
+            }
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+
+            throw;
         }
 
         _logger.Info($"数据库重建完成。扫描文件 {processed} 个。");
         return processed;
     }
 
-    private List<string> SafeEnumerateFiles(string targetRoot)
+    private IEnumerable<string> SafeEnumerateFiles(string targetRoot)
     {
-        var results = new List<string>();
         var pending = new Stack<string>();
         pending.Push(targetRoot);
 
         while (pending.Count > 0)
         {
             var current = pending.Pop();
+            IEnumerable<string> directories;
+            IEnumerable<string> files;
+
             try
             {
-                foreach (var directory in Directory.EnumerateDirectories(current))
-                {
-                    pending.Push(directory);
-                }
-
-                foreach (var file in Directory.EnumerateFiles(current))
-                {
-                    results.Add(file);
-                }
+                directories = Directory.EnumerateDirectories(current).ToArray();
+                files = Directory.EnumerateFiles(current).ToArray();
             }
             catch (Exception ex)
             {
                 _logger.Warning($"无法访问目录: {current}. {ex.Message}");
+                continue;
+            }
+
+            foreach (var directory in directories)
+            {
+                pending.Push(directory);
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
             }
         }
-
-        return results;
     }
 }

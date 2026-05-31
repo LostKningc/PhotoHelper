@@ -30,11 +30,10 @@ public sealed class ScanService
         }
 
         var results = new List<PhotoHistory>();
-        var files = SafeEnumerateFiles(sourcePath);
-        var total = files.Count;
+        var existingUuids = _databaseService.LoadAllUuids();
         var processed = 0;
 
-        foreach (var file in files)
+        foreach (var file in SafeEnumerateFiles(sourcePath))
         {
             processed++;
             try
@@ -46,8 +45,9 @@ public sealed class ScanService
 
                 var fileInfo = new FileInfo(file);
                 var uuid = PhotoFileHelper.BuildUuid(fileInfo);
+                var legacyUuid = PhotoFileHelper.BuildLegacyUuid(fileInfo);
 
-                if (_databaseService.Exists(uuid))
+                if (existingUuids.Contains(uuid) || existingUuids.Contains(legacyUuid))
                 {
                     continue;
                 }
@@ -58,12 +58,12 @@ public sealed class ScanService
                     ImportTime = DateTime.Now,
                     FileName = fileInfo.Name,
                     Size = fileInfo.Length,
-                    ModifiedTime = fileInfo.LastWriteTime,
+                    ModifiedTime = fileInfo.LastWriteTimeUtc,
                     SourcePath = fileInfo.FullName,
                     TargetPath = string.Empty
                 });
 
-                _logger.Info($"[待导入] {fileInfo.Name} ({processed}/{total})");
+                _logger.Info($"[待导入] {fileInfo.Name} ({processed})");
             }
             catch (Exception ex)
             {
@@ -75,33 +75,37 @@ public sealed class ScanService
         return results;
     }
 
-    private List<string> SafeEnumerateFiles(string sourcePath)
+    private IEnumerable<string> SafeEnumerateFiles(string sourcePath)
     {
-        var results = new List<string>();
         var pending = new Stack<string>();
         pending.Push(sourcePath);
 
         while (pending.Count > 0)
         {
             var current = pending.Pop();
+            IEnumerable<string> directories;
+            IEnumerable<string> files;
+
             try
             {
-                foreach (var directory in Directory.EnumerateDirectories(current))
-                {
-                    pending.Push(directory);
-                }
-
-                foreach (var file in Directory.EnumerateFiles(current))
-                {
-                    results.Add(file);
-                }
+                directories = Directory.EnumerateDirectories(current).ToArray();
+                files = Directory.EnumerateFiles(current).ToArray();
             }
             catch (Exception ex)
             {
                 _logger.Warning($"无法访问目录: {current}. {ex.Message}");
+                continue;
+            }
+
+            foreach (var directory in directories)
+            {
+                pending.Push(directory);
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
             }
         }
-
-        return results;
     }
 }

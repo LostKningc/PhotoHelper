@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
+using System.Diagnostics;
 using PhotoHelper.Data;
 using PhotoHelper.Logging;
 using PhotoHelper.Services;
@@ -122,7 +123,7 @@ public partial class MainWindow : Window
                 ImportProgressBar.Value = value.current;
             });
 
-            await Task.Run(() => RunImport(sourcePath, targetRoot, progress));
+            await Task.Run(() => RunImportAsync(sourcePath, targetRoot, progress));
             LogInfo("导入完成。");
         }
         catch (Exception ex)
@@ -175,32 +176,61 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RunImport(string sourcePath, string targetRoot, IProgress<(int current, int total)> progress)
+    private async Task RunImportAsync(string sourcePath, string targetRoot, IProgress<(int current, int total)> progress)
     {
         if (_scanService == null || _archiveService == null || _databaseService == null)
         {
             throw new InvalidOperationException("应用尚未配置目标路径。");
         }
 
+        var stopwatch = Stopwatch.StartNew();
         var newPhotos = _scanService.ScanForNewPhotos(sourcePath);
         var total = newPhotos.Count;
         var processed = 0;
+        var copied = 0;
+        var skipped = 0;
+        var failed = 0;
+        var maxParallel = Math.Max(1, Math.Min(4, Environment.ProcessorCount));
+        using var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
+        var tasks = new List<Task>(newPhotos.Count);
 
         foreach (var photo in newPhotos)
         {
-            try
+            await semaphore.WaitAsync().ConfigureAwait(false);
+            tasks.Add(Task.Run(() =>
             {
-                var archived = _archiveService.ArchivePhoto(photo, targetRoot);
-                _databaseService.Insert(archived);
-            }
-            catch (Exception ex)
-            {
-                LogWarning($"导入失败: {photo.FileName}. {ex.Message}");
-            }
+                try
+                {
+                    var result = _archiveService.ArchivePhoto(photo, targetRoot);
+                    if (result.WasCopied)
+                    {
+                        Interlocked.Increment(ref copied);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref skipped);
+                    }
 
-            processed++;
-            progress.Report((processed, total));
+                    _databaseService.Insert(result.Record);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    LogWarning($"导入失败: {photo.FileName}. {ex.Message}");
+                }
+                finally
+                {
+                    var current = Interlocked.Increment(ref processed);
+                    progress.Report((current, total));
+                    semaphore.Release();
+                }
+            }));
         }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        stopwatch.Stop();
+        LogInfo($"导入统计：共 {total} 张，成功复制 {copied} 张，跳过 {skipped} 张，失败 {failed} 张，耗时 {stopwatch.ElapsedMilliseconds} ms。");
     }
 
     private void SaveSettings()
@@ -311,6 +341,11 @@ public partial class MainWindow : Window
         {
             _databaseService.Initialize();
             LogInfo("SQLite 数据库已初始化。");
+            var stats = _databaseService.EnsureSchemaUpToDate(msg => _logger?.Warning(msg));
+            if (stats.Total > 0)
+            {
+                LogInfo($"旧库升级统计：共 {stats.Total} 条，升级 {stats.Upgraded} 条，缺失文件 {stats.SkippedMissingFile} 条，冲突跳过 {stats.SkippedConflict} 条。");
+            }
         }
         catch (Exception ex)
         {
@@ -334,6 +369,7 @@ public partial class MainWindow : Window
         RebuildButton.IsEnabled = isEnabled;
         SourcePathTextBox.IsEnabled = isEnabled;
         TargetRootTextBox.IsEnabled = isEnabled;
+        LibraryComboBox.IsEnabled = isEnabled;
     }
 
     private void OnLogEmitted(object? sender, LogMessage logMessage)
